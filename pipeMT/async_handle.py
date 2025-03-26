@@ -15,9 +15,12 @@ class pipeMTAsyncHandle:
         self.require_grad = require_grad
         self.output_device = output_device
         
-        self.cur_layer = 0
-        self.parameter_to_proccess = 0
-        self.parameter_processed = 0
+        self.lock = threading.Lock()
+        self.cur_layer = 0 # write only at scheduler thread
+        self.prefetch_layer = 0 # write only at scheduler or device monitor thread
+        self.parameter_to_proccess = 0 # write only at user thread
+        self.parameter_processed = 0 # write only at scheduler thread
+        
         self.flatten_states: List[Tuple[Any, ...]] = [None] * input.num_microbatch
         self.flatten_specs: List[TreeSpec] = [None] * input.num_microbatch
         self.transfer_event: List[Tuple[torch.cuda.Event, ...]] = [None] * input.num_microbatch
@@ -67,5 +70,10 @@ class pipeMTAsyncHandle:
             self.result = self.input.gather_result(hidden_states)
         return self.result
     
-    def get_priority(self) -> int:
-        return self.parameter_to_proccess - self.parameter_processed
+    def is_prior_to(self, other: Optional['pipeMTAsyncHandle']) -> bool:
+        if other is None:
+            return True
+        if self.prefetch_layer != other.prefetch_layer:
+            return self.prefetch_layer < other.prefetch_layer
+        return self.parameter_to_proccess - self.parameter_processed \
+                > other.parameter_to_proccess - other.parameter_processed

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 class Batch:
     def __init__(self, *args,
-                 num_microbatch: Optional[int] = torch.cuda.device_count(),
+                 num_microbatch: Optional[int] = torch.cuda.device_count() + 1,
                  args_chunk_spec: Optional[Tuple['TensorChunkSpec', ...]] = None,
                  kwargs_chunk_spec: Optional[Dict[str, 'TensorChunkSpec']] = None,
                  result_chunk_spec: Optional[Tuple['TensorChunkSpec', ...]] = None,

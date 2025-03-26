@@ -23,8 +23,7 @@ def scheduler_thread():
             handle_to_exec = None
             with model_queue_lock:
                 for handle in model_queue:
-                    if handle.input.is_data_ready() and (
-                        handle_to_exec is None or handle.get_priority() > handle_to_exec.get_priority()):
+                    if handle.input.is_data_ready() and handle.is_prior_to(handle_to_exec):
                         handle_to_exec = handle
                 if handle_to_exec is not None:
                     model_queue.remove(handle_to_exec)

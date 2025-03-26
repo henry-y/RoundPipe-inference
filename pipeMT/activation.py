@@ -101,7 +101,7 @@ class AsyncUpload(torch.autograd.Function):
 def download_hidden_state(device: 'DeviceManager', hidden_state
                           ) -> Tuple[Tuple[torch.cuda.Event, ...], Tuple[Any, ...], TreeSpec]:
     flatten_state, flatten_spec = tree_flatten(hidden_state)
-    out = AsyncDownload.apply(device.compute_stream, device.activation_downstream,
+    out = AsyncDownload.apply(device.compute_stream, device.downstream,
                               device.order_tag, *flatten_state)
     device.order_tag = out[0]
     return out[1:3], out[3:], flatten_spec
@@ -109,7 +109,7 @@ def download_hidden_state(device: 'DeviceManager', hidden_state
 def upload_hidden_state(device: 'DeviceManager', transfer_event: Tuple[torch.cuda.Event, ...],
                         flatten_state: Tuple[Any, ...], flatten_spec: Optional[TreeSpec] = None
                         ) -> Union[Any, List]:
-    out = AsyncUpload.apply(device.compute_stream, device.activation_upstream,
+    out = AsyncUpload.apply(device.compute_stream, device.upstream,
                             device.order_tag, *transfer_event, *flatten_state)
     device.order_tag = out[0]
     return list(out[1:]) if flatten_spec is None else tree_unflatten(out[1:], flatten_spec)

@@ -15,9 +15,6 @@ def upload_layer(layer: torch.nn.Module, transfer_stream: torch.cuda.Stream,
             buffer.data = buffer.data_cpu.to(device = torch.cuda.current_device(), non_blocking = True)
             buffer.data.record_stream(compute_stream)
     
-    compute_stream.wait_stream(transfer_stream)
-    transfer_stream.wait_stream(compute_stream)
-
 def free_layer_gpu(layer: torch.nn.Module, transfer_stream: torch.cuda.Stream):
     return
     with torch.cuda.stream(transfer_stream):

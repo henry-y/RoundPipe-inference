@@ -16,16 +16,13 @@ class DeviceManager:
         self.is_active = threading.Event()
         self.active_layer: 'pipeMTAsyncHandle' = None
         
-        self.parameter_upstream = torch.cuda.Stream(device, 0)
-        self.activation_upstream = torch.cuda.Stream(device, -1)
-        self.compute_stream = torch.cuda.Stream(device, -2)
-        self.activation_downstream = torch.cuda.Stream(device, -1)
-        self.parameter_downstream = torch.cuda.Stream(device, 0)
+        self.upstream = torch.cuda.Stream(device)
+        self.compute_stream = torch.cuda.Stream(device)
+        self.downstream = torch.cuda.Stream(device)
         
         self.order_tag = torch.empty(0, device = device)
         self.detach_tag = threading.Event()
-        self.first_batch_start = torch.cuda.Event()
-        self.first_batch_finish = torch.cuda.Event()
+        self.compute_start = torch.cuda.Event()
         
         threading.Thread(target = self.monitor_thread, daemon = True,
                          name = f'pipeMT {device} Device Monitor Thread').start()
@@ -33,14 +30,11 @@ class DeviceManager:
     def monitor_thread(self):
         while True:
             self.is_active.wait()
-            self.first_batch_start.synchronize()
-            if self.active_layer.cur_layer < self.active_layer.model.num_layers:
-                model_enqueue(self.active_layer)
-            else:
-                self.active_layer.all_launched.set()
-                scheduler_wake_up.set()
-            self.first_batch_finish.synchronize()
+            self.compute_start.synchronize()
+            with self.active_layer.lock:
+                self.active_layer.prefetch_layer -= 1
             self.active_layer = None
+            self.upstream.synchronize()
             self.is_active.clear()
             device_queue.put(self)
     
@@ -52,7 +46,7 @@ class DeviceManager:
             args, kwargs = handle.input.peek()
             handle.model.split_model(args, kwargs)
         
-        upload_layer(handle.model.layers[handle.cur_layer], self.parameter_upstream, self.compute_stream)
+        upload_layer(handle.model.layers[handle.cur_layer], self.upstream, self.compute_stream)
         
         for i in range(handle.input.num_microbatch):
             with annotate(f'{handle.model.name}L{handle.cur_layer}B{i}'):
@@ -61,10 +55,9 @@ class DeviceManager:
                 else:
                     hidden_state = upload_hidden_state(self, handle.transfer_event[i],
                                         handle.flatten_states[i], handle.flatten_specs[i])
-                self.activation_upstream.wait_stream(self.compute_stream) # limit prefetch rate
                 
                 if i == 0:
-                    self.first_batch_start.record(self.compute_stream)
+                    self.compute_start.record(self.compute_stream)
                 with torch.enable_grad() if handle.require_grad else torch.no_grad():
                     with torch.cuda.stream(self.compute_stream):
                         if handle.cur_layer == 0:
@@ -72,14 +65,18 @@ class DeviceManager:
                                                 *args, **kwargs)
                         else:
                             hidden_state = handle.model.layers[handle.cur_layer].forward(hidden_state)
-                if i == 0:
-                    self.first_batch_finish.record(self.compute_stream)
                     
                 handle.transfer_event[i], handle.flatten_states[i], handle.flatten_specs[i] = download_hidden_state(self, hidden_state)
         
-        free_layer_gpu(handle.model.layers[handle.cur_layer], self.parameter_downstream)
+        free_layer_gpu(handle.model.layers[handle.cur_layer], self.downstream)
         handle.parameter_processed += handle.model.layer_size[handle.cur_layer]
         handle.cur_layer += 1
+        with handle.lock:
+            handle.prefetch_layer += 1
+        if handle.cur_layer < handle.model.num_layers:
+            model_enqueue(handle)
+        else:
+            handle.all_launched.set()
         self.active_layer = handle
         self.is_active.set()
 
