@@ -1,11 +1,11 @@
 from typing import *
+import warnings
 
 import torch
 from torch.distributed.pipelining.microbatch import split_args_kwargs_into_chunks, merge_chunks
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
 from pipeMT.async_handle import pipeMTAsyncHandle
-from pipeMT.warning import throw
 
 if TYPE_CHECKING:
     from torch.distributed.pipelining.microbatch import TensorChunkSpec
@@ -23,8 +23,8 @@ class Batch:
             if isinstance(arg, pipeMTAsyncHandle):
                 self.input_handles.add(arg)
             elif isinstance(arg, torch.Tensor) and not arg.is_pinned():
-                throw('Pageable tensor detected in model input, this could cause performance degradation.')
-                throw('Please set pin_memory = True when creating input tensor or data loader.')
+                warnings.warn('[pipeMT WARNING] Pageable tensor detected in model input, this could cause performance degradation.')
+                warnings.warn('[pipeMT WARNING] Please set pin_memory = True when creating input tensor or data loader.')
         
         self.input_args, self.input_kwargs = split_args_kwargs_into_chunks(
                                                 args, kwargs,
