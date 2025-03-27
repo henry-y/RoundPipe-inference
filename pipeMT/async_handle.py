@@ -70,10 +70,3 @@ class pipeMTAsyncHandle:
             self.result = self.input.gather_result(hidden_states)
         return self.result
     
-    def is_prior_to(self, other: Optional['pipeMTAsyncHandle']) -> bool:
-        if other is None:
-            return True
-        if self.prefetch_layer != other.prefetch_layer:
-            return self.prefetch_layer < other.prefetch_layer
-        return self.parameter_to_proccess - self.parameter_processed \
-                > other.parameter_to_proccess - other.parameter_processed

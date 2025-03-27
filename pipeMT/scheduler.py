@@ -11,6 +11,14 @@ model_queue_lock = Lock()
 device_queue: Queue['DeviceManager'] = Queue()
 scheduler_wake_up = Event()
 
+def is_prior_to(self: 'pipeMTAsyncHandle', other: Optional['pipeMTAsyncHandle']) -> bool:
+    if other is None:
+        return True
+    if self.prefetch_layer != other.prefetch_layer:
+        return self.prefetch_layer < other.prefetch_layer
+    return self.parameter_to_proccess - self.parameter_processed \
+            > other.parameter_to_proccess - other.parameter_processed
+
 def model_enqueue(handle: 'pipeMTAsyncHandle'):
     with model_queue_lock:
         model_queue.add(handle)
@@ -23,7 +31,7 @@ def scheduler_thread():
             handle_to_exec = None
             with model_queue_lock:
                 for handle in model_queue:
-                    if handle.input.is_data_ready() and handle.is_prior_to(handle_to_exec):
+                    if handle.input.is_data_ready() and is_prior_to(handle, handle_to_exec):
                         handle_to_exec = handle
                 if handle_to_exec is not None:
                     model_queue.remove(handle_to_exec)
