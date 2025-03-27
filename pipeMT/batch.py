@@ -23,8 +23,9 @@ class Batch:
             if isinstance(arg, pipeMTAsyncHandle):
                 self.input_handles.add(arg)
             elif isinstance(arg, torch.Tensor) and not arg.is_pinned():
-                warnings.warn('[pipeMT WARNING] Pageable tensor detected in model input, this could cause performance degradation.')
-                warnings.warn('[pipeMT WARNING] Please set pin_memory = True when creating input tensor or data loader.')
+                warnings.warn('''
+[pipeMT WARNING] Pageable tensor detected in model input, this could cause performance degradation.
+[pipeMT WARNING] Please set pin_memory = True when creating input tensor or data loader.''')
         
         self.input_args, self.input_kwargs = split_args_kwargs_into_chunks(
                                                 args, kwargs,
