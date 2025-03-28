@@ -25,6 +25,7 @@ def model_enqueue(handle: 'pipeMTAsyncHandle'):
     scheduler_wake_up.set()
 
 def scheduler_thread():
+    from pipeMT.device import device_list
     while True:
         device = device_queue.get()
         while True:
@@ -39,6 +40,11 @@ def scheduler_thread():
             scheduler_wake_up.wait()
             scheduler_wake_up.clear()
         
+        if handle_to_exec.model.require_spliting:
+            args, kwargs = handle_to_exec.input.peek()
+            for d in device_list:
+                d.is_idle.wait()
+            handle_to_exec.model.split_model(args, kwargs)
         device.launch_layer(handle_to_exec)
 
 Thread(target = scheduler_thread, daemon = True,

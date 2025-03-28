@@ -57,6 +57,7 @@ class pipeMT(nn.Module):
                     mb_kwargs: Optional[Dict[str, Any]] = None,
                     split_spec: Optional[Dict[str, 'SplitPoint']] = None,
                     split_policy: Optional[Callable[['fx.GraphModule'], 'fx.GraphModule']] = None):
+        # This function is thread un-safe, be aware of pytorch export racing
         self.require_spliting = False
         split_spec = self.split_spec if split_spec is None else split_spec
         split_policy = self.split_policy if split_policy is None else split_policy
