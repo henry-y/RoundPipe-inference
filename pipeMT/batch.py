@@ -42,7 +42,7 @@ class Batch:
         flatten_input_cpu, flatten_spec = tree_flatten((self.input_args[0], self.input_kwargs[0]))
         for i in range(len(flatten_input_cpu)):
             if isinstance(flatten_input_cpu[i], pipeMTAsyncHandle):
-                flatten_input_cpu[i] = flatten_input_cpu[i].flatten_states[0]
+                flatten_input_cpu[i] = tree_unflatten(flatten_input_cpu[i].flatten_states[0], flatten_input_cpu[i].flatten_specs[0])
         return tree_unflatten(flatten_input_cpu, flatten_spec)
     
     def is_data_ready(self) -> bool:
