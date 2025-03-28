@@ -17,11 +17,13 @@ class Batch:
                  kwargs_chunk_spec: Optional[Dict[str, 'TensorChunkSpec']] = None,
                  result_chunk_spec: Optional[Tuple['TensorChunkSpec', ...]] = None,
                  **kwargs):
-        self.input_handles: Set[pipeMTAsyncHandle] = set()
+        self.input_handles: List[pipeMTAsyncHandle] = []
         flatten_args_kwargs, _ = tree_flatten((args, kwargs))
         for arg in flatten_args_kwargs:
             if isinstance(arg, pipeMTAsyncHandle):
-                self.input_handles.add(arg)
+                assert not arg.result_used, "Using async handle multiple times is not allowed"
+                arg.result_used = True
+                self.input_handles.append(arg)
             elif isinstance(arg, torch.Tensor) and not arg.is_pinned():
                 warnings.warn('''
 [pipeMT WARNING] Pageable tensor detected in model input, this could cause performance degradation.

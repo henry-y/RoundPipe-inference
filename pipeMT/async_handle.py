@@ -14,6 +14,7 @@ class pipeMTAsyncHandle:
         self.input = input
         self.require_grad = require_grad
         self.output_device = output_device
+        self.result_used = False
         
         self.lock = threading.Lock()
         self.cur_layer = 0 # write only at scheduler thread
