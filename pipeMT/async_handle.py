@@ -22,17 +22,14 @@ class pipeMTAsyncHandle:
         self.parameter_to_proccess = 0 # write only at user thread
         self.parameter_processed = 0 # write only at scheduler thread
         
-        self.flatten_states: List[Tuple[Any, ...]] = [None] * input.num_microbatch
-        self.flatten_specs: List[TreeSpec] = [None] * input.num_microbatch
-        self.transfer_event: List[Tuple[torch.cuda.Event, ...]] = [None] * input.num_microbatch
+        self.flatten_states: List[Tuple[Any, ...]] = None
+        self.flatten_specs: List[TreeSpec] = None
+        self.transfer_events: List[Tuple[List[torch.cuda.Event], ...]] = None
         
         self.result = None
         self.all_launched = threading.Event()
         
         self.mark_parameter_to_proccess(model.model_size, set())
-    
-    def __lt__(self, other: 'pipeMTAsyncHandle'):
-        return id(self) < id(other)
     
     def mark_parameter_to_proccess(self, size: int, visited_handle: Set[int]):
         if self.is_ready() or id(self) in visited_handle:
@@ -45,6 +42,10 @@ class pipeMTAsyncHandle:
     def is_ready(self) -> bool:
         return self.all_launched.is_set()
 
+    def flatten_input(self):
+        self.flatten_states, self.transfer_events, self.flatten_specs \
+            = self.input.flatten()
+
     def get_result(self) -> Any:
         from pipeMT.device import device_tag_detach
         if self.result is None:
@@ -52,7 +53,7 @@ class pipeMTAsyncHandle:
             device_tag_detach()
             if self.output_device != torch.device('cpu'):
                 flatten_states_on_device = []
-                for flatten_state, (transfer_event, _) in zip(self.flatten_states, self.transfer_event):
+                for flatten_state, ((transfer_event,), _) in zip(self.flatten_states, self.transfer_events):
                     transfer_event.synchronize()
                     flatten_state_on_device = []
                     for arg in flatten_state:
@@ -63,7 +64,7 @@ class pipeMTAsyncHandle:
                     flatten_states_on_device.append(flatten_state_on_device)
             else:
                 flatten_states_on_device = self.flatten_states
-                self.transfer_event[-1][0].synchronize()
+                self.transfer_events[-1][0][0].synchronize()
             
             hidden_states = []
             for flatten_state, flatten_spec in zip(flatten_states_on_device, self.flatten_specs):

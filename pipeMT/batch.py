@@ -3,7 +3,7 @@ import warnings
 
 import torch
 from torch.distributed.pipelining.microbatch import split_args_kwargs_into_chunks, merge_chunks
-from torch.utils._pytree import tree_flatten, tree_unflatten
+from torch.utils._pytree import tree_flatten, tree_unflatten, TreeSpec
 
 from pipeMT.async_handle import pipeMTAsyncHandle
 
@@ -52,6 +52,31 @@ class Batch:
             if not handle.is_ready():
                 return False
         return True
+
+    def flatten(self) -> Tuple[List[Tuple[Any, ...]], List[TreeSpec], List[Tuple[List[torch.cuda.Event], ...]]]:
+        flatten_states = []
+        flatten_specs = []
+        transfer_events = []
+        
+        for batch_idx, arg_kwarg in enumerate(zip(self.input_args, self.input_kwargs)):
+            forward_event = []
+            backward_event = []
+            flatten_input, flatten_spec = tree_flatten(arg_kwarg)
+            for item in flatten_input:
+                if isinstance(item, torch.Tensor):
+                    backward_event.append(None)
+                    break
+            for idx, item in enumerate(flatten_input):
+                if isinstance(item, pipeMTAsyncHandle):
+                    flatten_input[idx] = tree_unflatten(item.flatten_states[batch_idx], item.flatten_specs[batch_idx])
+                    forward_event += item.transfer_events[batch_idx][0]
+                    backward_event += item.transfer_events[batch_idx][1]
+            flatten_input, flatten_spec = tree_flatten(tree_unflatten(flatten_input, flatten_spec))
+            flatten_states.append(flatten_input)
+            transfer_events.append((forward_event, backward_event))
+            flatten_specs.append(flatten_spec)
+        
+        return flatten_states, transfer_events, flatten_specs
 
     def gather_result(self, result: List[Any]):
         return merge_chunks(result, self.result_chunk_spec)

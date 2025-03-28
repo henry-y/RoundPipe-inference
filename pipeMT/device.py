@@ -4,7 +4,7 @@ import threading
 import torch
 
 from pipeMT.scheduler import device_queue, model_enqueue, scheduler_wake_up
-from pipeMT.activation import download_hidden_state, upload_hidden_state, upload_input
+from pipeMT.activation import download_hidden_state, upload_hidden_state
 from pipeMT.profile import annotate
 from pipeMT.parameter import upload_layer, free_layer_gpu
 
@@ -38,28 +38,28 @@ class DeviceManager:
             if self.detach_tag.is_set():
                 self.order_tag = self.order_tag.detach()
                 self.detach_tag.clear()
+            if handle.cur_layer == 0:
+                handle.flatten_input()
             
             upload_layer(handle.model.layers[handle.cur_layer], self.upstream, self.compute_stream)
             
             for i in range(handle.input.num_microbatch):
                 with annotate(f'{handle.model.name}L{handle.cur_layer}B{i}'):
-                    if handle.cur_layer == 0:
-                        args, kwargs = upload_input(self, handle.input, i)
-                    else:
-                        hidden_state = upload_hidden_state(self, handle.transfer_event[i],
-                                            handle.flatten_states[i], handle.flatten_specs[i])
+                    hidden_state = upload_hidden_state(self, handle.transfer_events[i],
+                                        handle.flatten_states[i], handle.flatten_specs[i])
                     
                     if i == 0:
                         self.compute_start.record(self.compute_stream)
                     with torch.enable_grad() if handle.require_grad else torch.no_grad():
                         with torch.cuda.stream(self.compute_stream):
                             if handle.cur_layer == 0:
+                                args, kwargs = hidden_state
                                 hidden_state = handle.model.layers[handle.cur_layer].forward(
                                                     *args, **kwargs)
                             else:
                                 hidden_state = handle.model.layers[handle.cur_layer].forward(hidden_state)
                         
-                    handle.transfer_event[i], handle.flatten_states[i], handle.flatten_specs[i] = download_hidden_state(self, hidden_state)
+                    handle.transfer_events[i], handle.flatten_states[i], handle.flatten_specs[i] = download_hidden_state(self, hidden_state)
             
             free_layer_gpu(handle.model.layers[handle.cur_layer], self.downstream)
             
