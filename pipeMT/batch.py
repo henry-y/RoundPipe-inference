@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 class Batch:
     def __init__(self, *args,
-                 num_microbatch: Optional[int] = torch.cuda.device_count() + 1,
+                 num_microbatch: int = torch.cuda.device_count() + 1,
                  args_chunk_spec: Optional[Tuple['TensorChunkSpec', ...]] = None,
                  kwargs_chunk_spec: Optional[Dict[str, 'TensorChunkSpec']] = None,
                  result_chunk_spec: Optional[Tuple['TensorChunkSpec', ...]] = None,
@@ -53,14 +53,16 @@ class Batch:
                 return False
         return True
 
-    def flatten(self) -> Tuple[List[Tuple[Any, ...]], List[TreeSpec], List[Tuple[List[torch.cuda.Event], ...]]]:
+    def flatten(self) -> Tuple[List[List[Union[Any, torch.Tensor]]],
+                               List[Tuple[List[torch.cuda.Event], List[Optional[torch.cuda.Event]]]],
+                               List[TreeSpec]]:
         flatten_states = []
         flatten_specs = []
         transfer_events = []
         
         for batch_idx, arg_kwarg in enumerate(zip(self.input_args, self.input_kwargs)):
-            forward_event = []
-            backward_event = []
+            forward_event: List[torch.cuda.Event] = []
+            backward_event: List[Optional[torch.cuda.Event]] = []
             flatten_input, flatten_spec = tree_flatten(arg_kwarg)
             for item in flatten_input:
                 if isinstance(item, torch.Tensor) and item.requires_grad:

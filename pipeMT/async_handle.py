@@ -9,6 +9,10 @@ if TYPE_CHECKING:
     from pipeMT.batch import Batch
 
 class pipeMTAsyncHandle:
+    flatten_states: List[List[Union[Any, torch.Tensor]]]
+    flatten_specs: List[TreeSpec]
+    transfer_events: List[Tuple[Sequence[torch.cuda.Event], Sequence[Optional[torch.cuda.Event]]]]
+    
     def __init__(self, model: 'pipeMT', input: 'Batch', require_grad: bool, output_device: torch.device):
         self.model = model
         self.input = input
@@ -21,10 +25,6 @@ class pipeMTAsyncHandle:
         self.prefetch_layer = 0 # write only at scheduler or device monitor thread
         self.parameter_to_proccess = 0 # write only at user thread
         self.parameter_processed = 0 # write only at scheduler thread
-        
-        self.flatten_states: List[Tuple[Any, ...]] = None
-        self.flatten_specs: List[TreeSpec] = None
-        self.transfer_events: List[Tuple[List[torch.cuda.Event], ...]] = None
         
         self.result = None
         self.all_launched = threading.Event()

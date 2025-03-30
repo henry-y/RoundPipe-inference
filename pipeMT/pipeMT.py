@@ -29,7 +29,7 @@ class pipeMT(nn.Module):
         self.layer_has_param: List[bool] = []
         self.max_layer_size: int = 0
         if isinstance(model, nn.Sequential):
-            self.model = model
+            self.model: nn.Module = model
             self.layers = list(model)
             self.num_layers = len(self.layers)
             self.init_layer_info()

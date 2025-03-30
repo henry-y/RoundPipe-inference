@@ -17,7 +17,7 @@ if TYPE_CHECKING:
         layers: List[torch.nn.Module]
         layer_ids: List[int]
         device: DeviceManager
-        input_backward_events: List[torch.cuda.Event]
+        input_backward_events: Sequence[Optional[torch.cuda.Event]]
         flatten_spec: TreeSpec
         inputs: List[Any]
         tensor_indices: List[int]

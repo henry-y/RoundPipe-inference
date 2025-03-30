@@ -11,12 +11,12 @@ if TYPE_CHECKING:
     from pipeMT.async_handle import pipeMTAsyncHandle
 
 class DeviceManager:
+    active_layer: 'pipeMTAsyncHandle'
     def __init__(self, device: torch.device):
         self.device = device
         self.is_active = threading.Event()
         self.is_idle = threading.Event()
         self.is_idle.set()
-        self.active_layer: 'pipeMTAsyncHandle' = None
         
         self.upstream = torch.cuda.Stream(device)
         self.compute_stream = torch.cuda.Stream(device)

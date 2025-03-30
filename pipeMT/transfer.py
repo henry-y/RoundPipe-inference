@@ -4,8 +4,8 @@ import torch
 
 def async_d2h(compute_stream: torch.cuda.Stream,
               transfer_stream: torch.cuda.Stream,
-              transfer_finish_event: List[Optional[torch.cuda.Event]],
-              device_tensors: Tuple[Union[torch.Tensor, Any]]
+              transfer_finish_event: Iterable[Optional[torch.cuda.Event]],
+              device_tensors: Iterable[Union[torch.Tensor, Any]]
               ) -> List[Union[torch.Tensor, Any]]:
     host_tensors = []
     transfer_stream.wait_stream(compute_stream)
@@ -25,8 +25,8 @@ def async_d2h(compute_stream: torch.cuda.Stream,
 
 def async_h2d(compute_stream: torch.cuda.Stream,
               transfer_stream: torch.cuda.Stream,
-              host_ready_event: List[torch.cuda.Event],
-              host_tensors: Tuple[Union[torch.Tensor, Any]]
+              host_ready_event: Iterable[torch.cuda.Event],
+              host_tensors: Iterable[Union[torch.Tensor, Any]]
               ) -> List[Union[torch.Tensor, Any]]:
     device_tensors = []
     with torch.cuda.stream(transfer_stream):
@@ -46,28 +46,28 @@ def upload_layer(layer: torch.nn.Module, transfer_stream: torch.cuda.Stream,
                  compute_stream: torch.cuda.Stream, upload_grad: bool):
     with torch.cuda.stream(transfer_stream):
         for param in layer.parameters():
-            param.data = param.data_cpu.to(transfer_stream.device, non_blocking = True)
+            param.data = param.data_cpu.to(transfer_stream.device, non_blocking = True) # type: ignore[attr-defined]
             param.data.record_stream(compute_stream)
             if upload_grad and param.grad is not None:
                 param.grad = param.grad.to(transfer_stream.device, non_blocking = True)
                 param.grad.record_stream(compute_stream)
         for buffer in layer.buffers():
-            buffer.data = buffer.data_cpu.to(transfer_stream.device, non_blocking = True)
+            buffer.data = buffer.data_cpu.to(transfer_stream.device, non_blocking = True) # type: ignore[attr-defined]
             buffer.data.record_stream(compute_stream)
 
 def free_layer(layer: torch.nn.Module):
     for param in layer.parameters():
-        param.data = param.data_cpu
+        param.data = param.data_cpu # type: ignore[attr-defined]
     for buffer in layer.buffers():
-        buffer.data = buffer.data_cpu
+        buffer.data = buffer.data_cpu # type: ignore[attr-defined]
 
 def download_layer(layer: torch.nn.Module, transfer_stream: torch.cuda.Stream):
     with torch.cuda.stream(transfer_stream):
         for param in layer.parameters():
-            param.data = param.data_cpu
-            param.grad.record_stream(transfer_stream)
-            param.grad = param.grad.to(torch.device('cpu'), non_blocking = True)
+            param.data = param.data_cpu # type: ignore[attr-defined]
+            param.grad.record_stream(transfer_stream) # type: ignore[union-attr]
+            param.grad = param.grad.to(torch.device('cpu'), non_blocking = True) # type: ignore[union-attr]
         for buffer in layer.buffers():
             buffer.data.record_stream(transfer_stream)
-            buffer.data_cpu.copy_(buffer.data, non_blocking = True)
-            buffer.data = buffer.data_cpu
+            buffer.data_cpu.copy_(buffer.data, non_blocking = True) # type: ignore[attr-defined]
+            buffer.data = buffer.data_cpu # type: ignore[attr-defined]
