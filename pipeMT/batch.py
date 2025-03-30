@@ -63,7 +63,7 @@ class Batch:
             backward_event = []
             flatten_input, flatten_spec = tree_flatten(arg_kwarg)
             for item in flatten_input:
-                if isinstance(item, torch.Tensor):
+                if isinstance(item, torch.Tensor) and item.requires_grad:
                     backward_event.append(None)
                     break
             for idx, item in enumerate(flatten_input):

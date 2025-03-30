@@ -7,7 +7,6 @@ from torch.distributed.pipelining import pipeline
 from pipeMT.async_handle import pipeMTAsyncHandle
 from pipeMT.batch import Batch
 from pipeMT.device import *
-from pipeMT.parameter import preprocess_param
 from pipeMT.scheduler import model_enqueue
 from pipeMT.utils import get_model_size
 
@@ -19,17 +18,21 @@ class pipeMT(nn.Module):
     def __init__(self,
                  model: Union[nn.Module, Iterable[nn.Module]],
                  split_spec: Optional[Dict[str, 'SplitPoint']] = None,
-                 split_policy: Optional[Callable[['fx.GraphModule'], 'fx.GraphModule']] = None):
+                 split_policy: Optional[Callable[['fx.GraphModule'], 'fx.GraphModule']] = None,
+                 preserve_rng_state: bool = True):
         super().__init__()
         filename, lineno, _, _ = traceback.extract_stack()[-2]
         self.name = f'{filename.split('/')[-1]}:{lineno}'
+        self.preserve_rng_state = preserve_rng_state
         
-        self.layer_size = []
+        self.layer_size: List[int] = []
+        self.layer_has_param: List[bool] = []
+        self.max_layer_size: int = 0
         if isinstance(model, nn.Sequential):
             self.model = model
             self.layers = list(model)
             self.num_layers = len(self.layers)
-            self.init_layer_size()
+            self.init_layer_info()
             self.model_size = sum(self.layer_size)
             self.require_spliting = False
         elif isinstance(model, nn.Module):
@@ -40,7 +43,7 @@ class pipeMT(nn.Module):
             self.split_policy = split_policy
         else:
             raise TypeError('input model should be torch.nn.Module or torch.nn.Sequential')
-        preprocess_param(self.model)
+        self.preprocess_param()
 
     def __getattr__(self, name: str):
         try:
@@ -48,9 +51,18 @@ class pipeMT(nn.Module):
         except AttributeError:
             return getattr(self.model, name)
 
-    def init_layer_size(self):
+    def preprocess_param(self):
+        self.model._apply(lambda t: t.pin_memory())
+        for parm in self.model.parameters():
+            parm.data_cpu = parm.data
+        for buffer in self.model.buffers():
+            buffer.data_cpu = buffer.data
+
+    def init_layer_info(self):
         for layer in self.layers:
+            self.layer_has_param.append(any(True for _ in layer.parameters()))
             self.layer_size.append(get_model_size(layer))
+        self.max_layer_size = max(self.layer_size)
     
     def split_model(self,
                     mb_args: Tuple[Any, ...] = tuple(),
@@ -66,7 +78,7 @@ class pipeMT(nn.Module):
         self.num_layers = pipe.num_stages
         for i in range(pipe.num_stages):
             self.layers.append(pipe.get_stage_module(i))
-        self.init_layer_size()
+        self.init_layer_info()
 
     def forward(self, *args,
                 is_async: bool = False, require_grad: bool = torch.is_grad_enabled(),
