@@ -63,7 +63,8 @@ class CheckpointRun(torch.autograd.Function):
         # === End copy ===
         if batch_idx == 0:
             for idx in ctx.layer_ids:
-                upload_layer(ctx.layers[idx], device.upstream, device.compute_stream, False)
+                with handle.model.model_timer.time(idx, device.upstream):
+                    upload_layer(ctx.layers[idx], device.upstream, device.compute_stream, False)
         flatten_inputs_gpu = async_h2d(device.compute_stream, device.upstream, input_forward_events, flatten_inputs_cpu)
         device.upstream.wait_stream(device.compute_stream)
         # === Copy from torch.utils.checkpoint: CheckpointFunction: forward ===
@@ -85,11 +86,12 @@ class CheckpointRun(torch.autograd.Function):
             device.compute_start.record()
         with torch.no_grad(), torch.cuda.stream(device.compute_stream):
             for idx in ctx.layer_ids:
-                if idx == 0:
-                    args, kwargs = hidden_state
-                    hidden_state = ctx.layers[idx].forward(*args, **kwargs)
-                else:
-                    hidden_state = ctx.layers[idx].forward(hidden_state)
+                with handle.model.model_timer.time(idx):
+                    if idx == 0:
+                        args, kwargs = hidden_state
+                        hidden_state = ctx.layers[idx].forward(*args, **kwargs)
+                    else:
+                        hidden_state = ctx.layers[idx].forward(hidden_state)
         flatten_outputs_gpu, flatten_spec = tree_flatten(hidden_state)
         
         output_forward_event = [torch.cuda.Event()]

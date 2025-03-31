@@ -16,8 +16,8 @@ def is_prior_to(self: 'pipeMTAsyncHandle', other: Optional['pipeMTAsyncHandle'])
         return True
     if self.prefetch_layer != other.prefetch_layer:
         return self.prefetch_layer < other.prefetch_layer
-    return self.parameter_to_proccess - self.parameter_processed \
-            > other.parameter_to_proccess - other.parameter_processed
+    return self.workload_to_proccess - self.workload_processed \
+            > other.workload_to_proccess - other.workload_processed
 
 def model_enqueue(handle: 'pipeMTAsyncHandle'):
     with model_queue_lock:

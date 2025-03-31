@@ -23,21 +23,21 @@ class pipeMTAsyncHandle:
         self.lock = threading.Lock()
         self.cur_layer = 0 # write only at scheduler thread
         self.prefetch_layer = 0 # write only at scheduler or device monitor thread
-        self.parameter_to_proccess = 0 # write only at user thread
-        self.parameter_processed = 0 # write only at scheduler thread
+        self.workload_to_proccess = 0. # write only at user thread
+        self.workload_processed = 0. # write only at scheduler thread
         
         self.result = None
         self.all_launched = threading.Event()
         
-        self.mark_parameter_to_proccess(model.model_size, set())
+        self.mark_workload_to_proccess(model.model_workload, set())
     
-    def mark_parameter_to_proccess(self, size: int, visited_handle: Set[int]):
+    def mark_workload_to_proccess(self, workload: float, visited_handle: Set[int]):
         if self.is_ready() or id(self) in visited_handle:
             return
         visited_handle.add(id(self))
-        self.parameter_to_proccess += size
+        self.workload_to_proccess += workload
         for handle in self.input.input_handles:
-            handle.mark_parameter_to_proccess(size, visited_handle)
+            handle.mark_workload_to_proccess(workload, visited_handle)
 
     def is_ready(self) -> bool:
         return self.all_launched.is_set()

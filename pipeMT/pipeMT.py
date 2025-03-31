@@ -8,6 +8,7 @@ from pipeMT.async_handle import pipeMTAsyncHandle
 from pipeMT.batch import Batch
 from pipeMT.device import *
 from pipeMT.scheduler import model_enqueue
+from pipeMT.timer import ModelTimer
 from pipeMT.utils import get_model_size
 
 if TYPE_CHECKING:
@@ -25,19 +26,19 @@ class pipeMT(nn.Module):
         self.name = f'{filename.split('/')[-1]}:{lineno}'
         self.preserve_rng_state = preserve_rng_state
         
-        self.layer_size: List[int] = []
+        self.model_timer = ModelTimer()
+        self.layer_workload: List[float] = []
         self.layer_has_param: List[bool] = []
-        self.max_layer_size: int = 0
+        self.max_layer_workload: int = 0
         if isinstance(model, nn.Sequential):
             self.model: nn.Module = model
             self.layers = list(model)
-            self.num_layers = len(self.layers)
             self.init_layer_info()
-            self.model_size = sum(self.layer_size)
+            self.model_workload = sum(self.layer_workload)
             self.require_spliting = False
         elif isinstance(model, nn.Module):
             self.model = model
-            self.model_size = get_model_size(model)
+            self.model_workload = get_model_size(model)
             self.require_spliting = True
             self.split_spec = split_spec
             self.split_policy = split_policy
@@ -59,10 +60,12 @@ class pipeMT(nn.Module):
             buffer.data_cpu = buffer.data
 
     def init_layer_info(self):
+        self.num_layers = len(self.layers)
+        self.model_timer.init(self.num_layers)
         for layer in self.layers:
             self.layer_has_param.append(any(True for _ in layer.parameters()))
-            self.layer_size.append(get_model_size(layer))
-        self.max_layer_size = max(self.layer_size)
+            self.layer_workload.append(get_model_size(layer))
+        self.max_layer_workload = max(self.layer_workload)
     
     def split_model(self,
                     mb_args: Tuple[Any, ...] = tuple(),
@@ -75,15 +78,20 @@ class pipeMT(nn.Module):
         split_policy = self.split_policy if split_policy is None else split_policy
         pipe = pipeline(self.model, mb_args, mb_kwargs, split_spec, split_policy)
         self.layers = []
-        self.num_layers = pipe.num_stages
         for i in range(pipe.num_stages):
             self.layers.append(pipe.get_stage_module(i))
         self.init_layer_info()
+
+    def update_workload(self):
+        if self.model_timer.update_workload(self.layer_workload):
+            self.model_workload = sum(self.layer_workload)
+            self.max_layer_workload = max(self.layer_workload)
 
     def forward(self, *args,
                 is_async: bool = False, require_grad: bool = torch.is_grad_enabled(),
                 output_device: torch.device = torch.device('cpu'),
                 **kwargs):
+        self.update_workload()
         input = Batch(*args, **kwargs)
         result_handle = pipeMTAsyncHandle(self, input, require_grad, output_device)
         model_enqueue(result_handle)
