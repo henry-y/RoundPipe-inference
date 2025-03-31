@@ -25,6 +25,7 @@ class pipeMTAsyncHandle:
         self.prefetch_layer = 0 # write only at scheduler or device monitor thread
         self.workload_to_proccess = 0. # write only at user thread
         self.workload_processed = 0. # write only at scheduler thread
+        self.progress_sem: List[threading.Semaphore] = []
         
         self.result = None
         self.all_launched = threading.Event()
@@ -45,6 +46,10 @@ class pipeMTAsyncHandle:
     def flatten_input(self):
         self.flatten_states, self.transfer_events, self.flatten_specs \
             = self.input.flatten()
+    
+    def init_sem(self):
+        self.progress_sem = [threading.Semaphore(self.input.num_microbatch if i == 0 else 0)
+                             for i in range(self.model.num_layers)]
 
     def get_result(self) -> Any:
         from pipeMT.device import device_tag_detach

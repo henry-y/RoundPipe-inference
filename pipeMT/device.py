@@ -41,37 +41,43 @@ class DeviceManager:
                 self.detach_tag.clear()
             if handle.cur_layer == 0:
                 handle.flatten_input()
+                handle.init_sem()
             
-            workload_to_process = handle.model.layer_workload[handle.cur_layer]
+            layer_start = handle.cur_layer
+            workload_to_process = handle.model.layer_workload[layer_start]
             layer_to_process = 1
-            while handle.cur_layer + layer_to_process < handle.model.num_layers and \
-                  workload_to_process + handle.model.layer_workload[handle.cur_layer + layer_to_process] \
+            while layer_start + layer_to_process < handle.model.num_layers and \
+                  workload_to_process + handle.model.layer_workload[layer_start + layer_to_process] \
                       < handle.model.max_layer_workload * MERGE_LAYER_FACTOR:
-                workload_to_process += handle.model.layer_workload[handle.cur_layer + layer_to_process]
+                workload_to_process += handle.model.layer_workload[layer_start + layer_to_process]
                 layer_to_process += 1
-            layer_require_grad = any(handle.model.layer_has_param[handle.cur_layer + i] for i in range(layer_to_process))
-            
-            for i in range(handle.input.num_microbatch):
-                input_requrie_grad = any(isinstance(t, torch.Tensor) and t.requires_grad for t in handle.flatten_states[i])
-                with annotate(f'{handle.model.name}L[{handle.cur_layer}, {handle.cur_layer + layer_to_process})B{i}'):
-                    with torch.enable_grad() if handle.require_grad else torch.no_grad():
-                        order_tag = self.order_tag if layer_require_grad or input_requrie_grad else torch.empty(0)
-                        order_tag, *handle.flatten_states[i] \
-                            = CheckpointRun.apply(self, handle, layer_to_process, i, order_tag, *handle.flatten_states[i])
-                        if order_tag.requires_grad:
-                            self.order_tag = order_tag
-            
             handle.workload_processed += workload_to_process
             handle.cur_layer += layer_to_process
             with handle.lock:
                 handle.prefetch_layer += 1
             if handle.cur_layer < handle.model.num_layers:
                 model_enqueue(handle)
-            else:
-                handle.all_launched.set()
-                scheduler_wake_up.set()
+            
+            layer_ids = range(layer_start, layer_start + layer_to_process)
+            layer_require_grad = any(handle.model.layer_has_param[layer_start + i] for i in range(layer_to_process))
+            for i in range(handle.input.num_microbatch):
+                handle.progress_sem[layer_start].acquire()
+                input_requrie_grad = any(isinstance(t, torch.Tensor) and t.requires_grad for t in handle.flatten_states[i])
+                with annotate(f'{handle.model.name}L[{layer_start}, {layer_start + layer_to_process})B{i}'):
+                    with torch.enable_grad() if handle.require_grad else torch.no_grad():
+                        order_tag = self.order_tag if layer_require_grad or input_requrie_grad else torch.empty(0)
+                        order_tag, *handle.flatten_states[i] \
+                            = CheckpointRun.apply(self, handle, layer_ids, i, order_tag, *handle.flatten_states[i])
+                        if order_tag.requires_grad:
+                            self.order_tag = order_tag
+                if layer_start + layer_to_process < handle.model.num_layers:
+                    handle.progress_sem[layer_start + layer_to_process].release()
+            
             self.is_active.clear()
             self.is_idle.set()
+            if layer_start + layer_to_process == handle.model.num_layers:
+                handle.all_launched.set()
+                scheduler_wake_up.set()
             
             self.compute_start.synchronize()
             with handle.lock:

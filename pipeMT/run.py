@@ -15,7 +15,7 @@ if TYPE_CHECKING:
         batch_idx: int
         num_microbatch: int
         layers: List[torch.nn.Module]
-        layer_ids: List[int]
+        layer_ids: Iterable[int]
         device: DeviceManager
         input_backward_events: Sequence[Optional[torch.cuda.Event]]
         flatten_spec: TreeSpec
@@ -37,13 +37,13 @@ class CheckpointRun(torch.autograd.Function):
     @staticmethod
     def forward(ctx: 'CheckpointRunContext', device: 'DeviceManager',
                 handle: 'pipeMTAsyncHandle',
-                num_launch_layers:int, batch_idx: int,
+                layer_ids: Iterable[int], batch_idx: int,
                 device_order_tag: torch.Tensor,
                 *flatten_inputs_cpu: Any):
         ctx.batch_idx = batch_idx
         ctx.num_microbatch = handle.input.num_microbatch
         ctx.layers = handle.model.layers
-        ctx.layer_ids = [handle.cur_layer + idx for idx in range(num_launch_layers)]
+        ctx.layer_ids = layer_ids
         ctx.device = device
         input_forward_events = handle.transfer_events[batch_idx][0]
         ctx.input_backward_events = handle.transfer_events[batch_idx][1]
