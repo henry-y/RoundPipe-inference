@@ -3,11 +3,11 @@ import threading
 
 import torch
 
-from pipeMT.scheduler import device_queue, model_enqueue, scheduler_wake_up
+from pipeMT.scheduler import device_queue
 from pipeMT.profile import annotate
 from pipeMT.run import CheckpointRun
 
-MERGE_LAYER_FACTOR = 1.05
+MERGE_LAYER_FACTOR = 1.1
 
 if TYPE_CHECKING:
     from pipeMT.async_handle import pipeMTAsyncHandle
@@ -32,6 +32,7 @@ class DeviceManager:
                          name = f'pipeMT {device} Device Controller Thread').start()
     
     def controller_thread(self):
+        import pipeMT.scheduler as sched
         while True:
             self.is_active.wait()
             handle = self.active_layer
@@ -48,7 +49,7 @@ class DeviceManager:
             layer_to_process = 1
             while layer_start + layer_to_process < handle.model.num_layers and \
                   workload_to_process + handle.model.layer_workload[layer_start + layer_to_process] \
-                      < handle.model.max_layer_workload * MERGE_LAYER_FACTOR:
+                      < sched.scheduling_size * MERGE_LAYER_FACTOR:
                 workload_to_process += handle.model.layer_workload[layer_start + layer_to_process]
                 layer_to_process += 1
             handle.workload_processed += workload_to_process
@@ -56,7 +57,7 @@ class DeviceManager:
             with handle.lock:
                 handle.prefetch_layer += 1
             if handle.cur_layer < handle.model.num_layers:
-                model_enqueue(handle)
+                sched.model_enqueue(handle)
             
             layer_ids = range(layer_start, layer_start + layer_to_process)
             layer_require_grad = any(handle.model.layer_has_param[layer_start + i] for i in range(layer_to_process))
@@ -77,7 +78,7 @@ class DeviceManager:
             self.is_idle.set()
             if layer_start + layer_to_process == handle.model.num_layers:
                 handle.all_launched.set()
-                scheduler_wake_up.set()
+                sched.scheduler_wake_up.set()
             
             self.compute_start.synchronize()
             with handle.lock:
@@ -85,7 +86,7 @@ class DeviceManager:
             
             self.upstream.synchronize()
             self.active_layer = handle = None
-            device_queue.put(self)
+            sched.device_queue.put(self)
     
     def launch_layer(self, handle: 'pipeMTAsyncHandle'):
         self.active_layer = handle

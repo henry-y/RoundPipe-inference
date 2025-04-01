@@ -10,6 +10,7 @@ model_queue: Set['pipeMTAsyncHandle'] = set()
 model_queue_lock = Lock()
 device_queue: Queue['DeviceManager'] = Queue()
 scheduler_wake_up = Event()
+scheduling_size = 0
 
 def is_prior_to(self: 'pipeMTAsyncHandle', other: Optional['pipeMTAsyncHandle']) -> bool:
     if other is None:
@@ -20,8 +21,10 @@ def is_prior_to(self: 'pipeMTAsyncHandle', other: Optional['pipeMTAsyncHandle'])
             > other.workload_to_proccess - other.workload_processed
 
 def model_enqueue(handle: 'pipeMTAsyncHandle'):
+    global scheduling_size
     with model_queue_lock:
         model_queue.add(handle)
+        scheduling_size = max(scheduling_size, handle.model.max_layer_workload)
     scheduler_wake_up.set()
 
 def scheduler_thread():

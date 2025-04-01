@@ -55,9 +55,11 @@ class pipeMTAsyncHandle:
 
     def get_result(self) -> Any:
         from pipeMT.device import device_tag_detach
+        import pipeMT.scheduler
         if self.result is None:
             self.all_launched.wait()
             device_tag_detach()
+            pipeMT.scheduler.scheduling_size = 0
             if self.output_device != torch.device('cpu'):
                 flatten_states_on_device = []
                 for flatten_state, ((transfer_event,), _) in zip(self.flatten_states, self.transfer_events):
