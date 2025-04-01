@@ -4,6 +4,8 @@ import threading
 import torch
 from torch.utils._pytree import TreeSpec, tree_unflatten
 
+from pipeMT.transfer import PinnedUpload
+
 if TYPE_CHECKING:
     from pipeMT.pipeMT import pipeMT
     from pipeMT.batch import Batch
@@ -63,7 +65,7 @@ class pipeMTAsyncHandle:
                     flatten_state_on_device = []
                     for arg in flatten_state:
                         if isinstance(arg, torch.Tensor):
-                            flatten_state_on_device.append(arg.to(self.output_device, non_blocking = True))
+                            flatten_state_on_device.append(PinnedUpload.apply(arg, self.output_device))
                         else:
                             flatten_state_on_device.append(arg)
                     flatten_states_on_device.append(flatten_state_on_device)

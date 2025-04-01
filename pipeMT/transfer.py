@@ -34,7 +34,7 @@ def async_h2d(compute_stream: torch.cuda.Stream,
             event.wait()
         for host_tensor in host_tensors:
             if isinstance(host_tensor, torch.Tensor):
-                device_tensor = host_tensor.to(transfer_stream.device, non_blocking = True)
+                device_tensor = host_tensor.pin_memory().to(transfer_stream.device, non_blocking = True)
                 device_tensor.record_stream(compute_stream)
                 device_tensors.append(device_tensor)
             else:
@@ -71,3 +71,14 @@ def download_layer(layer: torch.nn.Module, transfer_stream: torch.cuda.Stream):
             buffer.data.record_stream(transfer_stream)
             buffer.data_cpu.copy_(buffer.data, non_blocking = True) # type: ignore[attr-defined]
             buffer.data = buffer.data_cpu # type: ignore[attr-defined]
+
+class PinnedUpload(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, t: torch.Tensor, d: torch.device):
+        return t.pin_memory().to(d, non_blocking = True)
+    
+    @staticmethod
+    def backward(ctx, g: torch.Tensor): # type: ignore[override]
+        g_host = torch.empty_like(g, device = torch.device('cpu'), pin_memory = True)
+        g_host.copy_(g)
+        return g_host, None
