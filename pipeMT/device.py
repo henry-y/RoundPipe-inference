@@ -5,7 +5,7 @@ import torch
 
 from pipeMT.scheduler import device_queue
 from pipeMT.profile import annotate
-from pipeMT.run import CheckpointRun
+from pipeMT.run import CheckpointRun, forward_backward_run
 
 MERGE_LAYER_FACTOR = 1.1
 
@@ -65,12 +65,15 @@ class DeviceManager:
                 handle.progress_sem[layer_start].acquire()
                 input_requrie_grad = any(isinstance(t, torch.Tensor) and t.requires_grad for t in handle.flatten_states[i])
                 with annotate(f'{handle.model.name}L[{layer_start}, {layer_start + layer_to_process})B{i}'):
-                    with torch.enable_grad() if handle.require_grad else torch.no_grad():
-                        order_tag = self.order_tag if layer_require_grad or input_requrie_grad else torch.empty(0)
-                        order_tag, *handle.flatten_states[i] \
-                            = CheckpointRun.apply(self, handle, layer_ids, i, order_tag, *handle.flatten_states[i])
-                        if order_tag.requires_grad:
-                            self.order_tag = order_tag
+                    if handle.FB_last_layer and layer_start + layer_to_process == handle.model.num_layers:
+                        forward_backward_run(self, handle, layer_ids, i)
+                    else:
+                        with torch.enable_grad() if handle.require_grad else torch.no_grad():
+                            order_tag = self.order_tag if layer_require_grad or input_requrie_grad else torch.empty(0)
+                            order_tag, *handle.flatten_states[i] \
+                                = CheckpointRun.apply(self, handle, layer_ids, i, order_tag, *handle.flatten_states[i])
+                            if order_tag.requires_grad:
+                                self.order_tag = order_tag
                 if layer_start + layer_to_process < handle.model.num_layers:
                     handle.progress_sem[layer_start + layer_to_process].release()
             

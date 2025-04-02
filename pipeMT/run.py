@@ -175,3 +175,46 @@ class CheckpointRun(torch.autograd.Function):
                 download_layer(ctx.layers[idx], device.downstream)
         
         return None, None, None, None, device_order_tag, *flatten_grad_inputs_cpu
+
+def forward_backward_run(device: 'DeviceManager', handle: 'pipeMTAsyncHandle',
+                         layer_ids: Iterable[int], batch_idx: int):
+    flatten_inputs_cpu = handle.flatten_states[batch_idx]
+    input_forward_events = handle.transfer_events[batch_idx][0]
+    input_backward_events = handle.transfer_events[batch_idx][1]
+    flatten_spec = handle.flatten_specs[batch_idx]
+    
+    if batch_idx == 0:
+        for idx in layer_ids:
+            with handle.model.model_timer.time(idx, device.upstream):
+                upload_layer(handle.model.layers[idx], device.upstream, device.compute_stream, True)
+    with torch.no_grad():
+        flatten_inputs_gpu = async_h2d(device.compute_stream, device.upstream, input_forward_events, flatten_inputs_cpu)
+    device.upstream.wait_stream(device.compute_stream)
+    for idx, arg in enumerate(flatten_inputs_gpu):
+        if isinstance(arg, torch.Tensor):
+            arg.requires_grad_(flatten_inputs_cpu[idx].requires_grad)
+    
+    hidden_state = tree_unflatten(flatten_inputs_gpu, flatten_spec)
+    with torch.cuda.stream(device.compute_stream):
+        for idx in layer_ids:
+            with handle.model.model_timer.time(idx):
+                if idx == 0:
+                    args, kwargs = hidden_state
+                    hidden_state = handle.model.layers[idx].forward(*args, **kwargs)
+                else:
+                    hidden_state = handle.model.layers[idx].forward(hidden_state)
+    if handle.result is None:
+        handle.result = []
+    handle.result.append(hidden_state)
+    
+    torch.autograd.backward(hidden_state)
+    flatten_grad_inputs_gpu = [
+        inp.grad if isinstance(inp, torch.Tensor) else None
+        for inp in flatten_inputs_gpu
+    ]
+    
+    handle.grad_flatten_states[batch_idx] \
+        = async_d2h(device.compute_stream, device.downstream, input_backward_events, flatten_grad_inputs_gpu)
+    if batch_idx == handle.input.num_microbatch - 1:
+        for idx in layer_ids:
+            download_layer(handle.model.layers[idx], device.downstream)

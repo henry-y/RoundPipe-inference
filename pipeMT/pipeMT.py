@@ -96,3 +96,11 @@ class pipeMT(nn.Module):
         result_handle = pipeMTAsyncHandle(self, input, require_grad, output_device)
         model_enqueue(result_handle)
         return result_handle if is_async else result_handle.get_result()
+
+    def forward_backward(self, *args, **kwargs):
+        assert torch.is_grad_enabled(), "You can't perform backward without gradient!"
+        self.update_workload()
+        input = Batch(*args, **kwargs)
+        handle = pipeMTAsyncHandle(self, input, True, torch.device('cpu'), True)
+        model_enqueue(handle)
+        return handle.backward()

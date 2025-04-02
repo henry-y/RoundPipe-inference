@@ -15,11 +15,13 @@ class pipeMTAsyncHandle:
     flatten_specs: List[TreeSpec]
     transfer_events: List[Tuple[Sequence[torch.cuda.Event], Sequence[Optional[torch.cuda.Event]]]]
     
-    def __init__(self, model: 'pipeMT', input: 'Batch', require_grad: bool, output_device: torch.device):
+    def __init__(self, model: 'pipeMT', input: 'Batch', require_grad: bool, output_device: torch.device,
+                 FB_last_layer = False):
         self.model = model
         self.input = input
         self.require_grad = require_grad
         self.output_device = output_device
+        self.FB_last_layer = FB_last_layer
         self.result_used = False
         
         self.lock = threading.Lock()
@@ -29,8 +31,11 @@ class pipeMTAsyncHandle:
         self.workload_processed = 0. # write only at scheduler thread
         self.progress_sem: List[threading.Semaphore] = []
         
-        self.result = None
+        self.result: Any = None
         self.all_launched = threading.Event()
+        
+        if FB_last_layer:
+            self.grad_flatten_states: List[List[Optional[torch.Tensor]]] = [[] for _ in range(input.num_microbatch)]
         
         self.mark_workload_to_proccess(model.model_workload, set())
     
@@ -79,5 +84,25 @@ class pipeMTAsyncHandle:
             for flatten_state, flatten_spec in zip(flatten_states_on_device, self.flatten_specs):
                 hidden_states.append(tree_unflatten(flatten_state, flatten_spec))
             self.result = self.input.gather_result(hidden_states)
+        return self.result
+    
+    def backward(self) -> list:
+        from pipeMT.device import device_tag_detach
+        import pipeMT.scheduler
+        
+        self.all_launched.wait()
+        device_tag_detach()
+        pipeMT.scheduler.scheduling_size = 0
+        
+        outputs_require_grad = []
+        outputs_grad: List[torch.Tensor] = []
+        for batch_output, batch_grad in zip(self.flatten_states, self.grad_flatten_states):
+            for idx, tensor in enumerate(batch_output):
+                if isinstance(tensor, torch.Tensor) and tensor.requires_grad:
+                    outputs_require_grad.append(tensor)
+                    grad = batch_grad[idx]
+                    outputs_grad.append(torch.zeros_like(tensor) if grad is None else grad)
+        torch.autograd.backward(outputs_require_grad, outputs_grad)
+        
         return self.result
     
