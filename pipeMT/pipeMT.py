@@ -23,7 +23,7 @@ class pipeMT(nn.Module):
                  preserve_rng_state: bool = True):
         super().__init__()
         filename, lineno, _, _ = traceback.extract_stack()[-2]
-        self.name = f'{filename.split('/')[-1]}:{lineno}'
+        self.name = f'{filename.split("/")[-1]}:{lineno}'
         self.preserve_rng_state = preserve_rng_state
         
         self.model_timer = ModelTimer()
