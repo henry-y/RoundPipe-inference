@@ -1,4 +1,5 @@
 from typing import *
+import os
 import traceback
 
 import torch.nn as nn
@@ -10,6 +11,7 @@ from pipeMT.device import *
 from pipeMT.scheduler import model_enqueue
 from pipeMT.timer import ModelTimer
 from pipeMT.utils import get_model_size
+from pipeMT.hf_loader import HfShardLoader
 
 if TYPE_CHECKING:
     import torch.fx as fx
@@ -54,10 +56,26 @@ class pipeMT(nn.Module):
 
     def preprocess_param(self):
         self.model._apply(lambda t: t.pin_memory())
-        for parm in self.model.parameters():
-            parm.data_cpu = parm.data
-        for buffer in self.model.buffers():
-            buffer.data_cpu = buffer.data
+        hf_dir = os.environ.get('PIPEMT_HF_MODEL_DIR')
+        self.hf_loader: Optional[HfShardLoader] = None
+        if hf_dir is not None and len(hf_dir) > 0:
+            self.hf_loader = HfShardLoader(hf_dir)
+        if self.hf_loader is None:
+            for parm in self.model.parameters():
+                parm.data_cpu = parm.data
+            for buffer in self.model.buffers():
+                buffer.data_cpu = buffer.data
+        else:
+            # 挂参数/缓冲的名字，并把 CPU 占位设为空，由 upload_layer 懒加载
+            for name, parm in self.model.named_parameters():
+                parm._name = name
+                parm.data_cpu = None
+            for name, buffer in self.model.named_buffers():
+                buffer._name = name
+                buffer.data_cpu = None
+            # 让层可以反查到 pipeMT 以访问 hf_loader
+            for layer in self.layers:
+                layer._pipeMT_ref = self
 
     def init_layer_info(self):
         self.num_layers = len(self.layers)

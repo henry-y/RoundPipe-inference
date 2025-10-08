@@ -50,12 +50,29 @@ def upload_layer(layer: torch.nn.Module, transfer_stream: torch.cuda.Stream,
                  compute_stream: torch.cuda.Stream, upload_grad: bool):
     with torch.cuda.stream(transfer_stream):
         for param in layer.parameters():
+            # 懒加载：若 CPU 侧为空，占位符触发从 HF 分片读取
+            if getattr(param, 'data_cpu', None) is None:
+                pipe_ref = getattr(layer, '_pipeMT_ref', None)
+                if pipe_ref is None or pipe_ref.hf_loader is None:
+                    raise RuntimeError('param.data_cpu is None but no hf_loader available')
+                name = getattr(param, '_name', None)
+                if name is None:
+                    raise RuntimeError('Parameter missing _name for hf lazy load')
+                param.data_cpu = pipe_ref.hf_loader.load_to_cpu(name, param.dtype, param.shape)
             param.data = param.data_cpu.to(transfer_stream.device, non_blocking = True) # type: ignore[attr-defined]
             param.data.record_stream(compute_stream)
             if upload_grad and param.grad is not None:
                 param.grad = param.grad.to(transfer_stream.device, non_blocking = True)
                 param.grad.record_stream(compute_stream)
         for buffer in layer.buffers():
+            if getattr(buffer, 'data_cpu', None) is None:
+                pipe_ref = getattr(layer, '_pipeMT_ref', None)
+                if pipe_ref is None or pipe_ref.hf_loader is None:
+                    raise RuntimeError('buffer.data_cpu is None but no hf_loader available')
+                name = getattr(buffer, '_name', None)
+                if name is None:
+                    raise RuntimeError('Buffer missing _name for hf lazy load')
+                buffer.data_cpu = pipe_ref.hf_loader.load_to_cpu(name, buffer.dtype, buffer.shape)
             buffer.data = buffer.data_cpu.to(transfer_stream.device, non_blocking = True) # type: ignore[attr-defined]
             buffer.data.record_stream(compute_stream)
 
