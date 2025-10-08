@@ -30,18 +30,18 @@ class pipeMT(nn.Module):
         self.layer_workload: List[float] = []
         self.layer_has_param: List[bool] = []
         self.max_layer_workload: int = 0
-        if isinstance(model, nn.Sequential):
+        if isinstance(model, (nn.ModuleList, nn.Sequential)):
             self.model: nn.Module = model
             self.layers = list(model)
             self.init_layer_info()
             self.model_workload = sum(self.layer_workload)
             self.require_spliting = False
         elif isinstance(model, nn.Module):
-            self.model = model
-            self.model_workload = get_model_size(model)
-            self.require_spliting = True
-            self.split_spec = split_spec
-            self.split_policy = split_policy
+            self.model: nn.Module = model
+            self.layers = [model]
+            self.init_layer_info()
+            self.model_workload = sum(self.layer_workload)
+            self.require_spliting = False
         else:
             raise TypeError('input model should be torch.nn.Module or torch.nn.Sequential')
         self.preprocess_param()

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 class Batch:
     def __init__(self, *args,
-                 num_microbatch: int = torch.cuda.device_count() + 1,
+                 num_microbatch: int = 1,
                  args_chunk_spec: Optional[Tuple['TensorChunkSpec', ...]] = None,
                  kwargs_chunk_spec: Optional[Dict[str, 'TensorChunkSpec']] = None,
                  result_chunk_spec: Optional[Tuple['TensorChunkSpec', ...]] = None,
@@ -28,11 +28,8 @@ class Batch:
                 warnings.warn('''
 [pipeMT WARNING] Pageable tensor detected in model input, this could cause performance degradation.
 [pipeMT WARNING] Please set pin_memory = True when creating input tensor or data loader.''')
-        
-        self.input_args, self.input_kwargs = split_args_kwargs_into_chunks(
-                                                args, kwargs,
-                                                num_microbatch,
-                                                args_chunk_spec, kwargs_chunk_spec)
+
+        self.input_args, self.input_kwargs = [args], [kwargs]
         self.num_microbatch = len(self.input_args)
         for handle in self.input_handles:
             assert handle.input.num_microbatch == self.num_microbatch, \
@@ -81,4 +78,4 @@ class Batch:
         return flatten_states, transfer_events, flatten_specs
 
     def gather_result(self, result: List[Any]):
-        return merge_chunks(result, self.result_chunk_spec)
+        return result[0]

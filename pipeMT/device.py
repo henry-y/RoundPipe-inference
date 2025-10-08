@@ -64,7 +64,7 @@ class DeviceManager:
             for i in range(handle.input.num_microbatch):
                 handle.progress_sem[layer_start].acquire()
                 input_requrie_grad = any(isinstance(t, torch.Tensor) and t.requires_grad for t in handle.flatten_states[i])
-                with annotate(f'{handle.model.name}L[{layer_start}, {layer_start + layer_to_process})B{i}'):
+                with annotate(f'{handle.model.name}L[{layer_start}, {layer_start + layer_to_process})B{i}'), torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=True):
                     if handle.FB_last_layer and layer_start + layer_to_process == handle.model.num_layers:
                         forward_backward_run(self, handle, layer_ids, i)
                     else:
